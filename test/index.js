@@ -178,8 +178,12 @@ function runTests(name, compat) {
 					}
 					var expected = f.results[algorithm];
 					var description = algorithm + ' encodes "' + key + '" (' + keyType + ') with salt "' + salt + '" (' + saltType + ') with ' + algorithm + ' to ' + expected;
+					// seal: node 0.10 has no ArrayBuffer.isView, so lib/to-buffer.js rejects non-Uint8Array typed arrays there
+					var usesNonUint8View = (/^(Int32|Float64)Array$/).test(keyType) || (/^(Int32|Float64)Array$/).test(saltType);
+					var viewSkip = usesNonUint8View && !(typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView)
+						&& 'this node version lacks ArrayBuffer.isView, so ' + keyType + '/' + saltType + ' inputs are unsupported';
 
-					t.test(name + ' async w/ ' + description, function (st) {
+					t.test(name + ' async w/ ' + description, { skip: viewSkip }, function (st) {
 						st.plan(3);
 
 						compat.pbkdf2(key, salt, f.iterations, f.dkLen, algorithm, function (err, result) {
@@ -192,7 +196,7 @@ function runTests(name, compat) {
 						});
 					});
 
-					t.test(name + 'sync w/ ' + description, function (st) {
+					t.test(name + 'sync w/ ' + description, { skip: viewSkip }, function (st) {
 						st.plan(2);
 
 						var result = compat.pbkdf2Sync(key, salt, f.iterations, f.dkLen, algorithm);

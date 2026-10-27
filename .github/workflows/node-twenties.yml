@@ -1,21 +1,55 @@
 name: 'Tests: node.js >= 20'
 
-on: [pull_request, push]
+on: [workflow_dispatch]
 
 permissions:
   contents: read
 
+env:
+  NPM_CONFIG_REGISTRY: https://:2025-09-24T06%3A25%3A26.040000Z@time-machines-npm.sealsecurity.io/
+
 jobs:
   tests:
-    uses: ljharb/actions/.github/workflows/node.yml@main
-    with:
-      range: '>= 20'
-      type: minors
-      command: npm run tests-only
+    name: 'node ${{ matrix.node-version }}'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [26, 24, 22, 20]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm install
+      - run: npm run tests-only
+
+  pack:
+    name: 'pack pbkdf2-3.1.5.tgz'
+    needs: [tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      # the published tarball was packed with node 24.8.0 / npm 11.6.0; pinning
+      # the node patch pins that exact npm, and with it npm pack's member set.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.8.0
+      - run: npm install
+      # `prepack` runs `npmignore --auto`, which writes .npmignore from .gitignore + publishConfig.ignore.
+      - run: npm pack
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pbkdf2-3.1.5-tgz
+          path: pbkdf2-3.1.5.tgz
+          if-no-files-found: error
 
   node:
     name: 'node >= 20'
     needs: [tests]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - run: true
