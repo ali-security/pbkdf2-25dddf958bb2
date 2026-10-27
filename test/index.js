@@ -344,6 +344,60 @@ tape('does not return all zeroes for any algorithm', function (t) {
 	t.end();
 });
 
+tape('long passwords are hashed once, not per iteration (GHSA-477h-4r7f-fvrx)', function (t) {
+	var syncImpls = { __proto__: null, js: js.pbkdf2Sync, browser: browserImpl };
+	/* istanbul ignore next */
+	if (!process.browser) {
+		syncImpls.node = require('../').pbkdf2Sync;
+	}
+
+	// seal: node 0.10's native pbkdf2Sync ignores the digest argument (HMAC-SHA1 only), and node 17 does not support ripemd160
+	var is010 = node.pbkdf2Sync.length < 5;
+	var algos = is010 ? ['sha1'] : [].concat(
+		'md5',
+		'sha1',
+		'sha224',
+		'sha256',
+		'sha384',
+		'sha512',
+		satisfies(process.version, '^17') ? [] : 'rmd160'
+	);
+	var lengths = [63, 64, 65, 127, 128, 129, 1000];
+
+	Object.keys(syncImpls).forEach(function (name) {
+		algos.forEach(function (algo) {
+			lengths.forEach(function (length) {
+				var password = Buffer.alloc(length, length % 256);
+				t.equal(
+					syncImpls[name](password, 'salt', 3, 70, algo).toString('hex'),
+					node.pbkdf2Sync(password, 'salt', 3, 70, algo).toString('hex'),
+					name + ': ' + algo + ' with a ' + length + '-byte password matches node'
+				);
+			});
+		});
+
+		var longPassword = Buffer.alloc(1048576, 46);
+		// seal: round-trip through hex, since node 0.10's digest() returns a legacy buffer that to-buffer rejects
+		var prehashed = Buffer.from(node.createHash('sha256').update(longPassword).digest('hex'), 'hex');
+
+		var start = Date.now();
+		var prehashedResult = syncImpls[name](prehashed, 'salt', 2000, 32, 'sha256');
+		var prehashedTime = Date.now() - start;
+
+		start = Date.now();
+		var longResult = syncImpls[name](longPassword, 'salt', 2000, 32, 'sha256');
+		var longTime = Date.now() - start;
+
+		t.equal(longResult.toString('hex'), prehashedResult.toString('hex'), name + ': a 1 MiB password matches its pre-hashed equivalent');
+		t.ok(
+			longTime <= (prehashedTime * 10) + 250,
+			name + ': a 1 MiB password is not rehashed on every iteration (' + longTime + 'ms vs ' + prehashedTime + 'ms)'
+		);
+	});
+
+	t.end();
+});
+
 runTests('JavaScript pbkdf2', js);
 
 var assign = require('object.assign');
